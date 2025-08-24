@@ -1,4 +1,4 @@
-// Space Truckers — Minimal Turn-Based Simulation
+// Space Truckers v2 — Turn-Based Simulation with Persistence
 const fmt = (n) => n.toLocaleString('en-US')
 const logEl = document.getElementById('log')
 const ui = {
@@ -10,6 +10,9 @@ const ui = {
   fleet: document.getElementById('fleet-list'),
   lb: document.getElementById('lb-list'),
 }
+const hardcoreEl = document.getElementById('hardcore')
+const saveSlotEl = document.getElementById('save-slot')
+
 const state = {
   day: 1,
   credits: 5000,
@@ -20,11 +23,14 @@ const state = {
   ],
   nextId: 2,
   contracts: [],
+  autoSave: true,
+  hardcore: false,
 }
 
 function log(msg) {
   const line = document.createElement('div')
   line.textContent = `Day ${state.day}: ${msg}`
+  line.className = 'transition-transform'
   logEl.prepend(line)
 }
 
@@ -36,9 +42,9 @@ const choice = (arr) => arr[Math.floor(Math.random() * arr.length)]
 const planets = ['Terra', 'Luna', 'Mars', 'Ganymede', 'Europa', 'Titan', 'Ceres', 'Vesta', 'Kepler-22b', 'Proxima-b']
 function genContract() {
   const from = choice(planets)
-  let to = choice(planets.filter(p => p !== from))
-  const dist = rnd(20, 200) // ly units
-  const weight = rnd(5, 40) // tons
+  const to = choice(planets.filter(p => p !== from))
+  const dist = rnd(20, 220) // ly units
+  const weight = rnd(5, 45) // tons
   const deadline = state.day + rnd(2, 8)
   const base = dist * 8 + weight * 15
   const payout = Math.round(base * (1 + Math.random()))
@@ -59,6 +65,7 @@ function render() {
   renderFleet()
   renderContracts()
   updateLeaderboard()
+  hardcoreEl.checked = state.hardcore
 }
 
 function renderFleet() {
@@ -104,23 +111,26 @@ function assignContract(ct) {
     log('No idle ship with enough capacity.')
     return
   }
-  // cost to depart = fuel proportional to dist + weight
   const fuelNeeded = Math.ceil(ct.dist * 0.4 + ct.weight * 0.2)
   if (idle.fuel < fuelNeeded) {
     log(`${idle.name} lacks fuel (${fuelNeeded} needed).`)
     return
   }
   idle.fuel -= fuelNeeded
-  idle.busy = Math.ceil(ct.dist / 30) // travel days
+  const baseTravel = Math.ceil(ct.dist / 30)
+  idle.busy = Math.max(1, baseTravel - (state.rep >= 5 ? 1 : 0)) // better rep -> faster docking
   idle._contract = ct
   log(`${idle.name} departed ${ct.from}→${ct.to} (ETA ${idle.busy}d).`)
 }
 
 function nextDay() {
   state.day += 1
+  // subtle pulse
+  document.getElementById('company-card').classList.add('scale-[1.01]')
+  setTimeout(() => document.getElementById('company-card').classList.remove('scale-[1.01]'), 160)
 
   // Random drift of fuel price
-  if (Math.random() < 0.4) {
+  if (Math.random() < 0.5) {
     const delta = rnd(-1, 2)
     state.fuelPrice = Math.max(2, state.fuelPrice + delta)
   }
@@ -129,29 +139,32 @@ function nextDay() {
   for (const ship of state.fleet) {
     if (ship.busy) {
       ship.busy -= 1
-      // Chance of breakdown
-      if (Math.random() < 0.15) {
-        const dmg = rnd(5, 20)
+      // Breakdown chance (higher in hardcore)
+      const breakdownChance = state.hardcore ? 0.22 : 0.15
+      if (Math.random() < breakdownChance) {
+        const dmg = rnd(5, state.hardcore ? 28 : 18)
         ship.hp = Math.max(0, ship.hp - dmg)
         log(`${ship.name} suffered a breakdown (-${dmg} HP).`)
       }
       if (ship.busy === 0) {
         const ct = ship._contract
         ship._contract = null
-        // Arrived — compute payout / penalty
         if (state.day <= ct.deadline) {
-          state.credits += ct.payout
+          const bonus = state.hardcore ? Math.round(ct.payout * 0.15) : 0
+          state.credits += ct.payout + bonus
           state.rep += 1
-          log(`${ship.name} delivered on time. +${fmt(ct.payout)} cr, +1 rep.`)
+          log(`${ship.name} delivered on time. +${fmt(ct.payout + bonus)} cr, +1 rep.`)
         } else {
-          state.credits -= ct.penalty
+          const penalty = state.hardcore ? Math.round(ct.penalty * 1.25) : ct.penalty
+          state.credits -= penalty
           state.rep = Math.max(0, state.rep - 1)
-          log(`${ship.name} delivered late. -${fmt(ct.penalty)} cr, -1 rep.`)
+          log(`${ship.name} delivered late. -${fmt(penalty)} cr, -1 rep.`)
         }
       }
     }
   }
 
+  if (state.autoSave) saveToServer(saveSlotEl.value, false)
   render()
 }
 
@@ -195,7 +208,7 @@ function buyShip() {
     name: `ST-${100 + state.nextId}`,
     fuel: 100, fuelMax: 100,
     hp: 100, hpMax: 100,
-    cap: rnd(25, 40),
+    cap: rnd(25, 45),
     busy: 0
   }
   state.fleet.push(newShip)
@@ -212,8 +225,77 @@ function sellShip() {
   render()
 }
 
+// Advanced random events
+function randomEvent() {
+  const roll = Math.random()
+  if (roll < 0.20) {
+    // Fuel spike
+    const delta = rnd(2, state.hardcore ? 6 : 4)
+    state.fuelPrice += delta
+    log(`Fuel price surge +${delta}.`)
+  } else if (roll < 0.40) {
+    // Customs / tax
+    const fine = rnd(120, state.hardcore ? 600 : 360)
+    state.credits = Math.max(0, state.credits - fine)
+    log(`Customs inspection fine -${fmt(fine)}.`)
+  } else if (roll < 0.55) {
+    // Government grant
+    const bonus = rnd(160, state.hardcore ? 420 : 520)
+    state.credits += bonus
+    log(`Government grant +${fmt(bonus)}.`)
+  } else if (roll < 0.75) {
+    // Pirates
+    const target = choice(state.fleet)
+    const loss = rnd(100, state.hardcore ? 600 : 350)
+    const dmg = rnd(8, state.hardcore ? 30 : 18)
+    state.credits = Math.max(0, state.credits - loss)
+    target.hp = Math.max(0, target.hp - dmg)
+    log(`Pirate ambush! Lost ${fmt(loss)} credits, ${target.name} took -${dmg} HP.`)
+  } else {
+    // Solar storm (delays)
+    const delaying = state.fleet.filter(s => s.busy)
+    if (delaying.length) {
+      delaying.forEach(s => s.busy += 1)
+      log(`Solar storm! Travel delayed for ${delaying.length} ship(s).`)
+    } else {
+      log('Solar storm passed harmlessly.')
+    }
+  }
+  render()
+}
+
+// Persistence helpers
+async function saveToServer(slot=1, notify=true) {
+  try {
+    const res = await fetch('/api/save', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({slot: Number(slot), state})
+    })
+    if (!res.ok) throw new Error('save failed')
+    if (notify) log(`Game saved in slot ${slot}.`)
+  } catch (e) {
+    log(`Save error: ${e.message}`)
+  }
+}
+
+async function loadFromServer(slot=1) {
+  try {
+    const res = await fetch(`/api/save?slot=${Number(slot)}`)
+    if (!res.ok) throw new Error('load failed')
+    const data = await res.json()
+    if (!data.state) return log('Empty slot.')
+    Object.assign(state, data.state)
+    render()
+    log(`Game loaded from slot ${slot}.`)
+  } catch (e) {
+    log(`Load error: ${e.message}`)
+  }
+}
+
 async function submitScore() {
   const name = document.getElementById('player-name').value || 'Anonymous'
+  localStorage.setItem('st_player_name', name)
   const res = await fetch('/api/score', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -238,33 +320,28 @@ function renderLeaderboard(items) {
   })
 }
 
-// Events
 document.getElementById('next-day').addEventListener('click', nextDay)
-document.getElementById('random-event').addEventListener('click', () => {
-  const roll = Math.random()
-  if (roll < 0.33) {
-    const delta = rnd(2, 5)
-    state.fuelPrice = Math.max(2, state.fuelPrice + delta)
-    log(`Fuel price surge +${delta}.`)
-  } else if (roll < 0.66) {
-    const fine = rnd(100, 400)
-    state.credits = Math.max(0, state.credits - fine)
-    log(`Customs inspection fine -${fmt(fine)}.`)
-  } else {
-    const bonus = rnd(150, 500)
-    state.credits += bonus
-    log(`Lucky contract bonus +${fmt(bonus)}.`)
-  }
-  render()
-})
+document.getElementById('random-event').addEventListener('click', randomEvent)
 document.getElementById('buy-ship').addEventListener('click', buyShip)
 document.getElementById('sell-ship').addEventListener('click', sellShip)
 document.getElementById('refuel').addEventListener('click', refuelAll)
 document.getElementById('repair').addEventListener('click', repairAll)
 document.getElementById('refresh-contracts').addEventListener('click', () => refreshContracts(5))
 document.getElementById('submit-score').addEventListener('click', submitScore)
+document.getElementById('save-game').addEventListener('click', () => saveToServer(saveSlotEl.value, true))
+document.getElementById('load-game').addEventListener('click', () => loadFromServer(saveSlotEl.value))
+document.getElementById('auto-save').addEventListener('click', () => {
+  state.autoSave = !state.autoSave
+  log(`Auto-save ${state.autoSave ? 'enabled' : 'disabled'}.`)
+})
+hardcoreEl.addEventListener('change', () => {
+  state.hardcore = hardcoreEl.checked
+  log(`Hardcore mode ${state.hardcore ? 'ON' : 'OFF'}.`)
+})
 
 // Init
 refreshContracts(5)
 render()
-log('Welcome, Dispatcher. Build your fortune by Day 30 and submit your score!')
+log('Welcome back, Dispatcher. Build profit by Day 30 and submit your best score!')
+const savedName = localStorage.getItem('st_player_name')
+if (savedName) document.getElementById('player-name').value = savedName

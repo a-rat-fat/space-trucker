@@ -1,73 +1,71 @@
-# 🚛🚀 Space Truckers — Mini Simulation Game
+# 🚛🚀 Space Truckers v2 — Persistent Mini Sim (Flask + SQLite)
 
-A small, fun, turn-based web game where you manage a fleet of interstellar trucks.
-Balance **fuel**, **time**, **maintenance**, and **profit** while taking delivery contracts between planets.
-
-Deployed easily on **Railway** via Docker or locally with **OrbStack** / Docker Desktop.
+Space Truckers v2 is a turn-based web mini-sim where you manage a fleet of interstellar trucks.
+This version adds **SQLite persistence**, **advanced random events**, and an **improved UI**.
 
 ---
 
-## ✨ Features
+## ✨ What's new in v2
 
-- Turn-based gameplay (Day/Night cycle)
-- Fleet management: buy/sell ships, refuel, repair
-- Contracts with distance, weight, deadline, and payout
-- Random events: breakdowns, fuel price changes, inspections
-- Leaderboard endpoint (in-memory) to submit your best profit
-- Clean, responsive UI (Tailwind via CDN) + dark theme
+- **Persistence (SQLite)** for Leaderboard and Game Saves (3 slots).
+- **Advanced Events**: pirates, solar storms, engine overheat, tax/random grants, fuel spikes.
+- **UI Enhancements**: smoother feedback, new controls, save/load panel, light polish.
+- **API**:
+  - `POST /api/score` → `{ name, profit }` saves a score
+  - `GET /api/leaderboard` → top 20 scores
+  - `POST /api/save` → `{ slot, state }` saves the current game state (JSON)
+  - `GET /api/save?slot=1` → returns `{ state }` for the slot or `{}` if empty
 
 ---
 
 ## 🧱 Stack
 
-- **Backend**: Python 3 + Flask
-- **Frontend**: Vanilla JS, Tailwind (CDN), a sprinkle of CSS
-- **Packaging**: Dockerfile for Railway / OrbStack
+- **Backend**: Python 3 + Flask (Gunicorn in Docker)
+- **DB**: SQLite (file path configurable via `DB_PATH`, default `/data/game.db`)
+- **Frontend**: Vanilla JS + Tailwind (CDN)
 
 ---
 
 ## ▶️ Run locally (OrbStack / Docker)
 
 ```bash
-# 1) Build image
-docker build -t space-truckers .
+unzip space-truckers-v2.zip
+cd space-truckers-v2
 
-# 2) Run container
-docker run -p 8080:8080 --env PORT=8080 space-truckers
+# Build image
+docker build -t space-truckers-v2 .
+
+# Create a local data directory for persistence
+mkdir -p data
+
+# Run (maps ./data to /data in the container for SQLite persistence)
+docker run -p 8080:8080 --env PORT=8080 -v $(pwd)/data:/data space-truckers-v2
 
 # Open http://localhost:8080
 ```
 
-If you're using OrbStack on macOS, the above commands work as-is.
+> Tip (macOS/OrbStack): the commands above work out of the box.
 
 ---
 
 ## ☁️ Deploy on Railway
 
-1. Create a new project on Railway using your Git repo or upload directly.
-2. Ensure Railway uses the provided `Dockerfile`.
-3. Add an environment variable `PORT=8080` (Railway usually injects one automatically).
-4. Deploy — the app listens on `$PORT`.
+1) Push this project to a Git repo or upload the folder.  
+2) Create a new Railway service from the repo.  
+3) Ensure Railway uses the **Dockerfile**.  
+4) Railway sets `$PORT` automatically; keep `CMD` as provided.  
+5) Storage on Railway containers is ephemeral; for real persistence, use a volume or hosted DB.
+
+Environment variables (optional):
+- `PORT=8080`
+- `DB_PATH=/data/game.db`
 
 ---
 
-## 🔧 Environment
-
-Copy `.env.example` to `.env` if running locally and want to override defaults.
-
----
-
-## 📡 API
-
-- `POST /api/score` — Submit `{ "name": "Marko", "profit": 12345 }`
-- `GET /api/leaderboard` — Returns top scores (in-memory, resets on restart)
-
----
-
-## 📁 Project Structure
+## 📁 Structure
 
 ```
-space-truckers/
+space-truckers-v2/
 ├─ app/
 │  ├─ app.py
 │  ├─ templates/
@@ -85,4 +83,4 @@ space-truckers/
 
 ## 📝 License
 
-MIT — Do whatever you want. Have fun and credit if you feel like it.
+MIT — Have fun! Credit appreciated.
